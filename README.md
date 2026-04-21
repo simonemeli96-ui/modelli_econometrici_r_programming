@@ -165,9 +165,12 @@ maggiore salto nell'R².
 ---
 
 ## 📌 Note
-Il dataset ANALISI_WAGE.csv è incluso nel repository.  
-Per riprodurre l'analisi aggiornare il percorso del file CSV  
-nella prima riga del codice R Markdown.  
-Tutti i modelli utilizzano errori standard robusti HC1  
-per correggere l'eteroschedasticità rilevata con il test  
-di Breusch-Pagan.
+Il dataset `ANALISI_WAGE.csv` è incluso nel repository e caricabile 
+direttamente con:
+
+```r
+Dataset_wage <- read.csv("ANALISI_WAGE.csv")
+```
+
+Tutti i modelli utilizzano errori standard robusti HC1 per correggere 
+l'eteroschedasticità rilevata con il test di Breusch-Pagan.
