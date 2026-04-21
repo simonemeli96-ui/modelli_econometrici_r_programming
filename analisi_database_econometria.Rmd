@@ -1,0 +1,470 @@
+---
+title: "Esame Leombruni"
+author: "Federico"
+date: "2025-10-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Importazione del dataset
+
+```{r}
+install.packages("sandwich")
+install.packages("estimatr")
+```
+
+Importo il dataset in formato sas e visualizzo le prime righe
+```{r}
+
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(car)
+library(lmtest)
+library(knitr)
+library(corrplot)
+library(sandwich)
+library(estimatr)
+library(modelsummary)
+```
+## Esplorazione dei dati
+Procedo con la summary delle principali variabili
+
+```{r}
+Dataset_wage <- read.csv("ANALISI_WAGE.csv")
+
+#Verifica dei dati
+cat("N osservazioni:", nrow(Dataset_wage), "\n")
+cat("N variabili:", ncol(Dataset_wage), "\n")
+
+# Visualizzo le prime righe
+head(Dataset_wage)
+
+```
+
+```{r}
+#Struttura: tipo di ogni variabile (numeric, factor, ecc.)
+str(Dataset_wage)
+
+# Statistiche descrittive
+summary(Dataset_wage)
+```
+## Commento delle analisi descrittive (vedi analisi fatta da Simone)
+
+## Distribuzione dei salari
+
+Il grafico seguente mostra la distribuzione dei salari mensili. Si osserva una forte asimmetria positiva: la maggior parte dei lavoratori guadagna meno di 600 €,mentre pochi individui presentano retribuzioni molto più alte.
+
+```{r}
+hist(Dataset_wage$wage, main = "Distribuzione dei salari", xlab = "Wage (euro)")
+
+
+
+# Istogramma wage
+ggplot(Dataset_wage, aes(x = wage)) +
+  geom_histogram(binwidth = 50, fill = "steelblue", color = "white", alpha = 0.8) +
+  geom_vline(aes(xintercept = mean(wage)), color = "red", 
+             linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = median(wage)), color = "darkgreen", 
+             linetype = "dashed", linewidth = 1) +
+  labs(title = "Distribuzione Wage",
+       subtitle = "Rosso = Media (515€), Verde = Mediana (450€)",
+       x = "Wage (€)", 
+       y = "Frequenza",
+       caption = "Distribuzione asimmetrica a destra (skewness = 1.72)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+```
+possiamo a questo punto “comprimere” i valori molto alti e rende la distribuzione più vicina a una forma normale!
+
+```{r}
+# Istogramma di log(wage)
+ggplot(Dataset_wage, aes(x = log(wage))) +
+  geom_histogram(binwidth = 0.1, fill = "steelblue", color = "white", alpha = 0.8) +
+  geom_vline(aes(xintercept = mean(log(wage), na.rm = TRUE)), 
+             color = "red", linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = median(log(wage), na.rm = TRUE)), 
+             color = "darkgreen", linetype = "dashed", linewidth = 1) +
+  labs(title = "Distribuzione log(Wage)",
+       subtitle = paste0(
+         "Rosso = Media (", round(mean(log(Dataset_wage$wage), na.rm = TRUE), 2),
+         "), Verde = Mediana (", round(median(log(Dataset_wage$wage), na.rm = TRUE), 2), ")"
+       ),
+       x = "log(Wage)", 
+       y = "Frequenza",
+       caption = "Dopo la trasformazione log, la distribuzione è più simmetrica") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
+
+  La trasformazione logaritmica del wage rappresenta una scelta metodologica fondamentale per questa analisi. Come si può osservare dal grafico, dopo l'applicazione del logaritmo naturale la distribuzione risulta notevolmente più simmetrica, con media (6.18) e mediana (6.11) molto più vicine tra loro rispetto alla variabile originale.
+La funzione logaritmo permette di rendere i dati più interpretabili e converte variazioni unitarie delle variabili in variazioni percentuali.
+
+Questa trasformazione non è solo una soluzione tecnica per normalizzare la distribuzione, ma ha anche un'importante interpretazione economica. Quando utilizziamo log(wage) come variabile dipendente in un modello di regressione lineare, i coefficienti delle variabili indipendenti assumono un significato particolare: rappresentano variazioni percentuali piuttosto che variazioni assolute del salario.
+
+```{r}
+# Boxplot wage per skill
+Dataset_wage %>%
+  mutate(Skill = factor(skill_level, 
+                        levels = 1:4,
+                        labels = c("Formazione", "Operai", "Impiegati", "Dirigenti"))) %>%
+  ggplot(aes(x = Skill, y = wage, fill = Skill)) +
+  geom_boxplot(alpha = 0.7) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "red") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Distribuzione Wage per Skill Level",
+       subtitle = "Il rombo rosso indica la media",
+       x = "Skill Level", 
+       y = "Wage (€)") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", size = 14))
+
+```
+  Ad una prima analisi del dataset, vediamo che il nostro campione è composto da 45.879 osservazioni, fra le quali vi sono
+soltanto 11 valori mancanti. Dall'analisi esplorativa sembra che non c'è nessun valore impossibile e che i range numerici
+delle variabili sono realistici.
+  Dalle statistiche descrittive risulta, invece, che la variabile salario (wage) presenta una distribuzione asimmetrica positiva. Infatti, la mediana di 515€ è significativamente inferiore alla media di 515€; ma quello che emerge chiaramente è che il 50% dei lavoratori guadagna fino a 450€, mentre la media viene "tirata su" da pochi lavoratori con salari molto elevati. L'intervallo interquartile (400-600€) conferma che la maggior parte dei dati si concentra in questa fascia.
+  L'età mostra una distribuzione quasi perfettamente simmetrica, con mediana e media praticamente coincidenti (39 vs 39.7 anni). Il range ideale di 20-64 anni rappresenta l'età lavorativa standard, mentre l'IQR di 32-47 anni indica che la maggior parte del campione si concentra nella fascia di mezza età.
+  La variabile sul genere (male) con una media di 0.6084 indica che il campione è composto per il 60.8% da uomini e 39.2% da donne. Questa proporzione rispecchia abbastanza fedelmente la composizione della forza lavoro italiana (circa 60% maschile), rendendo il campione rappresentativo (vedi:https://www.istat.it/comunicato-stampa/occupati-e-disoccupati-dati-provvisori-agosto-2025/ ). 
+  Solo 1 lavoratore su 5 lavora partime: questa variabile può avere un impatto sul salario. Un'altra variabile che può avere un'influenza importante sulla variabile target è l'anzianità (job_tenure): con una mediana di appena 1 anno e il 64% dei lavoratori con anzianità ≤ 1 anno, emerge un quadro di alto turnover o di un campione ricco di nuovi assunti. La media bassa (1.48 anni) conferma questa tendenza. La variabile che però si candida ad essere la più significativa in relazione al salario è quella sull'inquadramento lavorativo (skill_levels): ha 4 valori (1. formazione; 2.operai; 3.impiegati; 4.dirigenti). La mediana di 2 e la media di 2.38 indicano una leggera prevalenza di ruoli operai. Si prevede che questa variabile sia il principale determinante del salario, poiché l'inquadramento contrattuale determina direttamente la retribuzione base.
+  Infine, bisogna sottolineare che il 16.8% dei lavoratori della popolazione campionaria ha un contratto precario, mentre l'area geografica riflette una maggiore concentrazione nel nord Italia rispetto alle altre zone geografiche.
+
+
+##Matrice di correlazione
+
+```{r}
+num_vars <- Dataset_wage[, sapply(Dataset_wage, is.numeric)]
+corr_matrix <- cor(num_vars, use = "complete.obs")
+round(corr_matrix, 2)
+
+corrplot(corr_matrix, method = "color", type = "upper",
+         addCoef.col = "black", tl.cex = 0.4)
+```
+  L'esame della matrice di correlazione rivela alcuni pattern interessanti nelle relazioni tra le variabili del dataset, con particolare attenzione ai fattori che influenzano il salario.
+Le correlazioni più forti con il salario emergono chiaramente per due variabili chiave: skill_level (0.50) e job_tenure (0.39). Questo risultato suggerisce l'ipotesi che l'inquadramento lavorativo rappresenta il principale determinante della retribuzione, seguito dall'anzianità aziendale.
+  L'anzianità lavorativa (job_tenure) presenta anch'essa una relazione positiva apprezzabile con il salario, sebbene di intensità inferiore. Le altre variabili mostrano correlazioni più deboli con il salario. Ad esempio l'età (age) presenta una correlazione di 0.24, moderata ma non trascurabile, suggerendo che l'esperienza di vita lavorativa generale (l'età può essere considerata come proxy per gli anni di lavoro "totali" di un individuo) ha un effetto sul salario, sebbene meno marcato rispetto all'anzianità specifica nell'impresa corrente. 
+  Da tale matrice è possibile anche trarre qualche spunto metodologico per l'analisi delle correlazioni tra predittori: si può notare una correlazione moderata (0.32) tra età e anzianità sul posto di lavoro (cosa prevedibile visto che entrambe misurano aspetti temporali dell'esperienza lavorativa). Questa sovrapposizione parziale suggerisce la necessità di prestare attenzione a potenziali problemi di multicollinearità nella specificazione del modello.
+Interessante anche la relazione tra skill_level e altre variabili: la correlazione positiva con l'età (0.25) e l'anzianità sul posto di lavoro (0.33) suggerisce che posizioni di inquadramento superiore tendono ad essere occupate da lavoratori più anziani e con maggiore anzianità, un pattern che riflette le normali dinamiche di progressione di carriera.
+
+```{r}
+Dati_wage <- read.csv("ANALISI_WAGE.csv", header = TRUE, sep = ",")
+
+summary(Dati_wage)
+```
+# PULIZIA DATASET
+```{r}
+
+# Ricarichiamo e puliamo i dati rimuovendo NA 
+Dati_wage <- read.csv("ANALISI_WAGE.csv", header = TRUE, sep = ",")
+
+cat("Righe PRIMA del filtro:", nrow(Dati_wage), "\n")
+
+# Rimuovi NA e valori fuori range
+Dati_wage_clean <- Dati_wage %>%
+  filter(!is.na(wage), !is.na(male), !is.na(age), !is.na(job_tenure), !is.na(skill_level)) %>%
+  filter(wage > 0, skill_level %in% c(1,2,3,4))
+
+cat("Righe DOPO pulizia:", nrow(Dati_wage_clean), "\n")
+
+# Converti skill_level in factor
+Dati_wage_clean$skill_level <- factor(Dati_wage_clean$skill_level,
+  levels = c(1, 2, 3, 4),
+  labels = c("Formazione", "Operai", "Impiegati", "Quadri/Dirigenti"))
+
+# Prepara anche macrogruppo per mod8
+Dati_wage_clean$macrogruppo <- Dati_wage$macrogruppo
+Dati_wage_clean$macrogruppo[Dati_wage_clean$macrogruppo == ""] <- NA
+Dati_wage_clean$macrogruppo <- factor(
+  Dati_wage_clean$macrogruppo,
+  levels = c("Agricoltura e Alimentare", "Tessile e Abbigliamento",
+             "Manifatturiera Leggera", "Chimica e Materiali",
+             "Metalmeccanica", "Utilities e Trasporti", "Servizi Avanzati"),
+  labels = c("agr_alim", "tess_abbigl", "manif_leggera", "chim_materiali",
+             "metalmeccanica", "util_trasporti", "serv_avanzati")
+)
+```
+
+```{r}
+
+mod1 <- lm(wage ~ male, data = Dati_wage_clean)
+summary(mod1)
+
+residui <- residuals(mod1)
+
+qqnorm(residui)
+qqline(residui, col = "red")
+    
+```
+# Partendo dalla matrice di correlazione proviamo a calcolare un modello di regressione fra il salario
+e il genere. Dopo aver analizzato la distribuzione di wage, abbiamo deciso di trattare la variabile dipendente come logaritmica. Procediamo con una prima semplice regressione sulla variabile male per verificare se il sesso sia una variabile significativa nel determinare la varianza di wage. 
+
+```{r}
+
+mod2 <- lm(log(wage) ~ male, data = Dati_wage_clean)
+summary(mod2)
+
+residui <- residuals(mod2)
+
+qqnorm(residui)
+qqline(residui, col = "red")
+
+```
+#gli uomini guadagnano circa il 10,4% in più 100×(e0.0994−1)≈10.4%. I p-value sono molto bassi quindi la variabile male è molto significativa.l'r quadro è debole, 1,9% di varianza spiegata.Test F solo per b1 ci fa rifiutare l'ipotesi nulla (nessun effetto da nessuna variabile) pert tanto ci conferma la significatività.
+Ora tentiamo di migliorare l'R quadro aggiungendo la variabile età, prima da sola poi insieme per verificare l'effetto.
+
+```{r}
+
+mod3_age_male <- lm(log(wage) ~ male + age, data = Dati_wage_clean)
+summary(mod3_age_male)
+```
+
+#Coefficiente di male
+
+Prima (modello con solo male): 0.099 → +10.4 %
+
+Ora (con age incluso): 0.090 → +9.4 %
+
+È diminuito leggermente, ma resta positivo e significativo.
+Questo è il tipico esempio di “bias da variabile omessa”:
+
+Nel primo modello, parte della differenza uomo-donna era attribuita al genere, ma in realtà una parte era dovuta al fatto che gli uomini mediamente sono più anziani (e quindi più esperti).
+
+Aggiungendo age, il modello “corregge” quel bias e la differenza di genere scende da 10.4 % a 9.4 %
+Ciò che si potrebbe fare ora e capire se l'età cresce davvero linearmente oppure no.Per dedurlo ci serviremo di un grafico:
+
+```{r}
+
+plot(Dati_wage_clean$age, log(Dati_wage_clean$wage),
+     main = "Relazione tra età e log(salario)",
+     xlab = "Età",
+     ylab = "log(Wage)",
+     pch = 19, col = rgb(0,0,0,0.1))
+     
+lines(lowess(Dati_wage$age, log(Dati_wage$wage)), col = "red", lwd = 2)
+
+# Test di eteroschedasticità
+#breush pagan test
+bptest(mod3_age_male)
+```
+
+#Il p-value è basso quindi c'è eteroschedasticità: la varianza degli errori cambia in funzione delle variabili indipendenti.
+Per questo in questo modello e nei prossimi utilizzeremo degli standard error robusti all'eteroschedasticità
+  
+```{r}
+mod3_age_male <- lm_robust(log(wage) ~ male + age, data = Dati_wage_clean, se_type = "HC1")
+summary(mod3_age_male)
+```
+
+# Test: verifichiamo se la relazione età-salario è quadratica
+# Prima di procedere con il modello completo, testiamo se age² migliora la specificazione
+
+```{r}
+mod_test_age_quadr <- lm_robust(log(wage) ~ age +  I(age^2), data = Dati_wage_clean, se_type = "HC1")
+summary(mod_test_age_quadr)
+```
+A conferma della rappresentazione del grafico, il modello polinomiale ha un R quadro migliore rispetto alla regressione lineare.
+Quindi, all'aumentare dell'età non necessariamente aumenta dello stesso importo lo stipendio; anzi, c'è un punto in cui un aumento dell'età determina una stabilizzazione dello stipendio.
+
+# Modello 5: aggiunge skill_level (MODELLO PRINCIPALE)
+
+Dal momento che la variabile skill_level ha la correlazione maggiore con la variabile wage, la inseriamo come regressore. Poiché skill_level è una variabile categorica, la trasformiamo in 4 variabili dummies.
+
+```{r}
+# Modello 5: aggiunge skill_level (MODELLO PRINCIPALE)
+mod5 <- lm_robust(log(wage) ~ male + age + I(age^2) + job_tenure + skill_level,
+           data = Dati_wage_clean, se_type = "HC1")
+summary(mod5)
+```
+Perché l'essere operai non ha un beta statisticamente significativo? Perché il beta rappresenta la differenza in media rispetto al caso base della categoria di studenti. Si ritiene plausibile che non si possa ricavare una differenza di salari significativa tra le due categorie.
+
+[Male: il suo beta rappresenta la differenza percentuale di wage dato che si è maschi rispetto al caso base di femmina/studentessa]
+
+```{r}
+# Modello 6: test di robustezza con settori economici (modello con dummies settoriali)
+mod6 <- lm_robust(log(wage) ~ male + age + I(age^2) + job_tenure +
+             skill_level + macrogruppo,
+           data = Dati_wage_clean, se_type = "HC1")
+summary(mod6)
+```
+
+L'aggiunta dei settori migliora leggermente l'R² ma i coefficienti chiave restano stabili, confermando la robustezza del modello 5.
+
+Il modello finale spiega circa il 43% della variabilità dei salari.
+Tutti i coefficienti sono significativi e coerenti con la teoria economica: il salario cresce con l’età e l’anzianità, ma con rendimenti decrescenti, ed è fortemente influenzato dal livello professionale.
+A parità di caratteristiche, gli uomini guadagnano in media il 18% in più delle donne, segnalando un potenziale gender gap residuo.
+
+L’inclusione del livello professionale (skill_level) porta il coefficiente di male da 0.087 a 0.168.
+Questo suggerisce che parte del gender gap era inizialmente “mascherata” dal fatto che gli uomini ricoprono ruoli mediamente più elevati.
+Controllando per il livello di competenza, emerge un divario salariale di circa 18% a favore degli uomini anche a parità di posizione, segnalando una componente residua non spiegata da differenze di carriera.
+
+## TEST INTERAZIONI
+Per verificare se gli effetti sono omogenei tra gruppi, testiamo due interazioni chiave.
+```{r}
+# Interazione male × skill_level
+# Domanda: il gender gap è uguale per tutti gli inquadramenti?
+mod5_int1 <- lm_robust(log(wage) ~ male*skill_level + age + I(age^2) + job_tenure,
+                       data = Dati_wage_clean, se_type = "HC1")
+summary(mod5_int1)
+```
+```{r}
+# Interazione male × age
+# Domanda: il gender gap aumenta o diminuisce con l'età?
+mod5_int2 <- lm_robust(log(wage) ~ male*age + I(age^2) + job_tenure + skill_level,
+                       data = Dati_wage_clean, se_type = "HC1")
+summary(mod5_int2)
+```
+
+**Interpretazione delle interazioni:**
+- Se i coefficienti delle interazioni in mod5_int1 sono significativi, significa che il gender gap varia tra inquadramenti (ad esempio, più ampio tra i dirigenti).
+- Se il coefficiente dell'interazione in mod5_int2 è significativo, significa che il gender gap evolve con l'età (si amplia o si riduce nel corso della carriera).
+- Se le interazioni NON sono significative, confermiamo che il modello 5 (senza interazioni) è appropriato: l'effetto di "male" è costante tra gruppi.
+
+
+## CONFRONTO TRA MODELLI
+```{r}
+install.packages("modelsummary")
+
+```
+
+# Stimiamo tutti i modelli principali per confronto
+```{r}
+mod1_comp <- lm_robust(log(wage) ~ male, data = Dati_wage_clean, se_type = "HC1")
+mod2_comp <- lm_robust(log(wage) ~ male + age, data = Dati_wage_clean, se_type = "HC1")
+mod3_comp <- lm_robust(log(wage) ~ male + age + I(age^2), data = Dati_wage_clean, se_type = "HC1")
+mod4_comp <- lm_robust(log(wage) ~ male + age + I(age^2) + job_tenure, data = Dati_wage_clean, se_type = "HC1")
+mod5_comp <- lm_robust(log(wage) ~ male + age + I(age^2) + job_tenure + skill_level, data = Dati_wage_clean, se_type = "HC1")
+mod5_int1_comp <- lm_robust(log(wage) ~ male*skill_level + age + I(age^2) + job_tenure,
+                       data = Dati_wage_clean, se_type = "HC1")
+```
+
+# Tabella comparativa
+
+```{r}
+# Creiamo la tabella di confronto includendo anche mod5_int1_comp
+tabella_confronto <- data.frame(
+  Modello = c("(1) Solo male",
+              "(2) + age",
+              "(3) + age²",
+              "(4) + tenure",
+              "(5) + skill",
+              "(6) + interazione"),
+  N_var = c(1, 2, 3, 4, 7, 8),  # aggiorna se necessario
+  R2 = round(c(mod1_comp$r.squared,
+               mod2_comp$r.squared,
+               mod3_comp$r.squared,
+               mod4_comp$r.squared,
+               mod5_comp$r.squared,
+               mod5_int1_comp$r.squared), 4),
+  R2_adj = round(c(mod1_comp$adj.r.squared,
+                   mod2_comp$adj.r.squared,
+                   mod3_comp$adj.r.squared,
+                   mod4_comp$adj.r.squared,
+                   mod5_comp$adj.r.squared,
+                   mod5_int1_comp$adj.r.squared), 4),
+  Coeff_male = round(c(coef(mod1_comp)["male"],
+                       coef(mod2_comp)["male"],
+                       coef(mod3_comp)["male"],
+                       coef(mod4_comp)["male"],
+                       coef(mod5_comp)["male"],
+                       coef(mod5_int1_comp)["male"]), 4)
+)
+
+# Mostra la tabella con knitr::kable
+kable(tabella_confronto,
+      col.names = c("Modello", "N. variabili", "R²", "R² adj", "Coeff. male"),
+      caption = "Confronto tra i modelli stimati (incluso modello con interazione)")
+
+```
+
+
+```{r}
+# Grafico evoluzione R² (incluso modello con interazione)
+df_r2 <- data.frame(
+  Modello = 1:6,
+  Nome = c("(1) Solo male",
+           "(2) + age",
+           "(3) + age²",
+           "(4) + tenure",
+           "(5) + skill",
+           "(6) + interazione"),
+  R2 = c(mod1_comp$r.squared,
+         mod2_comp$r.squared,
+         mod3_comp$r.squared,
+         mod4_comp$r.squared,
+         mod5_comp$r.squared,
+         mod5_int1_comp$r.squared)
+)
+
+ggplot(df_r2, aes(x = Modello, y = R2)) +
+  geom_line(color = "steelblue", linewidth = 1.2) +
+  geom_point(size = 4, color = "steelblue") +
+  scale_x_continuous(breaks = df_r2$Modello, labels = df_r2$Nome) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(title = "Evoluzione di R² aggiungendo variabili",
+       x = "Modello",
+       y = "R²") +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+```
+
+```{r}
+# Grafico evoluzione coefficiente 'male' (incluso modello con interazione)
+df_male <- data.frame(
+  Modello = 1:6,
+  Nome = c("(1) Solo male",
+           "(2) + age",
+           "(3) + age²",
+           "(4) + tenure",
+           "(5) + skill",
+           "(6) + interazione"),
+  Coeff = c(coef(mod1_comp)["male"],
+            coef(mod2_comp)["male"],
+            coef(mod3_comp)["male"],
+            coef(mod4_comp)["male"],
+            coef(mod5_comp)["male"],
+            coef(mod5_int1_comp)["male"])
+)
+
+ggplot(df_male, aes(x = Modello, y = Coeff)) +
+  geom_line(color = "darkred", linewidth = 1.2) +
+  geom_point(size = 4, color = "darkred") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_x_continuous(breaks = df_male$Modello, labels = df_male$Nome) +
+  labs(title = "Evoluzione del coefficiente di 'male'",
+       x = "Modello", y = "Coefficiente") +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+```
+
+Questo mostra visivamente il fenomeno del bias da variabile omessa (coefficiente che prima scende poi risale).
+```{r}
+library(modelsummary)
+
+# Crea una lista di modelli, includendo quello con interazione
+models <- list(
+  "Model 1: Solo male" = mod1_comp,
+  "Model 2: + age" = mod2_comp,
+  "Model 3: + age²" = mod3_comp,
+  "Model 4: + tenure" = mod4_comp,
+  "Model 5: + skill" = mod5_comp,
+  "Model 6: + interazione" = mod5_int1_comp
+)
+
+# Crea la tabella riassuntiva
+modelsummary(models,
+             stars = TRUE,                         # aggiunge le stelline di significatività
+             statistic = "({std.error})",          # mostra gli errori standard tra parentesi
+             gof_omit = 'IC|Log|Adj|F|RMSE',       # omette statistiche di bontà del fit non essenziali
+             output = "html",                      # formato di output (html, latex, markdown, ecc.)
+             title = "Confronto tra modelli di regressione") 
+
+
+```
+
